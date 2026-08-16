@@ -1,0 +1,4 @@
+build/
+*.fd
+compile_commands.json
+
