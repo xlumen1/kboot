@@ -1,7 +1,7 @@
 CC := clang
 LD := lld-link
 
-CCFLAGS := -Iinclude/efi -Iinclude/kboot -target x86_64-pc-win32-coff -fno-stack-protector -fshort-wchar -mno-red-zone
+CCFLAGS := -Iinclude/efi -Iinclude/kboot -target x86_64-pc-win32-coff -fno-stack-protector -fshort-wchar -mno-red-zone -masm=att
 LDFLAGS := -subsystem:efi_application -nodefaultlib -dll
 
 SRC := src

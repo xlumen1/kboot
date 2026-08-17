@@ -64,15 +64,40 @@ EFI_STATUS efi_main(EFI_HANDLE ih, EFI_SYSTEM_TABLE *st) {
 
 	memcpy((VOID *)kernel_addr, kernel_data, kernel_size);
 
-	EFI_GRAPHICS_OUTPUT_PROTOCOL *gop;
-	system_table->BootServices->LocateProtocol(&gop_guid, (VOID *)0, (VOID **)&gop);
+	UINTN memory_map_size = 0;
+	EFI_MEMORY_DESCRIPTOR *memory_map = 0;
+	UINTN map_key;
+	UINTN descriptor_size;
+	UINT32 descriptor_version;
 
-	typedef void (*kernel_entry_t)();
-	kernel_entry_t entry = (kernel_entry_t)kernel_addr;
-	entry();
+	system_table->BootServices->GetMemoryMap(
+			&memory_map_size,
+			memory_map,
+			&map_key,
+			&descriptor_size,
+			&descriptor_version);
 
-	for (;;) ;
+	memory_map_size += descriptor_size * 2;
 
-	return EFI_SUCCESS;
+	system_table->BootServices->AllocatePool(
+			EfiLoaderData,
+			memory_map_size,
+			(void **)&memory_map);
+
+	status = system_table->BootServices->GetMemoryMap(
+			&memory_map_size,
+			memory_map,
+			&map_key,
+			&descriptor_size,
+			&descriptor_version);
+	
+	system_table->BootServices->ExitBootServices(image_handle, map_key);
+
+	__asm__ volatile (
+			"movabs $0x100000, %rax\n\t"
+			"jmp *%rax"
+		);
+	
+	__builtin_unreachable();
 }
 
