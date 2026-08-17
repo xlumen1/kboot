@@ -1,8 +1,5 @@
 #include "util.h"
 
-EFI_SYSTEM_TABLE *system_table;
-EFI_HANDLE image_handle;
-
 void *memcpy(void *dest, const void *src, UINTN n) {
     UINT8 *d = dest;
     const UINT8 *s = src;
@@ -16,26 +13,26 @@ void *memset(void *dest, int c, UINTN n) {
     return dest;
 }
 
-void *malloc(UINTN n) {
+VOID *Malloc(UINTN n) {
 	void *out = (void *)0;
-	system_table->BootServices->AllocatePool(EfiLoaderData, n, &out);
+	gSystemTable->BootServices->AllocatePool(EfiLoaderData, n, &out);
 	return out;
 }
 
-void free(void *mem) {
-	system_table->BootServices->FreePool(mem);
+VOID Free(VOID *mem) {
+	gSystemTable->BootServices->FreePool(mem);
 }
 
-void PrintLn(CHAR16 *string) {
-	system_table->ConOut->OutputString(system_table->ConOut, string);
-	system_table->ConOut->OutputString(system_table->ConOut, L"\r\n");
+VOID PrintLn(CHAR16 *string) {
+	gSystemTable->ConOut->OutputString(gSystemTable->ConOut, string);
+	gSystemTable->ConOut->OutputString(gSystemTable->ConOut, L"\r\n");
 }
 
-void PrintHex(UINT64 value) {
+VOID PrintHex(UINT64 value) {
 	CHAR16 output[17] = L"XXXXXXXXXXXXXXXX";
 	CHAR16 map[17] = L"0123456789ABCDEF";
 	for (int i = 0; i < 8; i++) {
-		UINT8 byte = (value >> (i * 8)) & 0xFF;
+		UINT8 byte = (value >> ((7 - i) * 8)) & 0xFF;
 		int low = byte & 0x0F;
 		int high = byte >> 4;
 

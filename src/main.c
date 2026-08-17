@@ -6,109 +6,168 @@
 #include "protocol/efi-gop.h"
 #include "protocol/efi-lip.h"
 
-EFI_GUID gop_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
-EFI_GUID lip_guid = EFI_LOADED_IMAGE_PROTOCOL_GUID;
+#define TARGET_KERNEL_ADDR 0x100000
 
-EFI_STATUS efi_main(EFI_HANDLE ih, EFI_SYSTEM_TABLE *st) {
-	image_handle = ih;
-	system_table = st;
+typedef VOID (__attribute__((sysv_abi)) *KERNEL_ENTRY)(KBOOT_BOOT_INFO *BootInfo);
 
-	EFI_STATUS status;
+static BOOLEAN GuidEqual(EFI_GUID *A, EFI_GUID *B) {
+	UINT8 *Ab = (UINT8 *)A;
+	UINT8 *Bb = (UINT8 *)B;
+	for (UINTN i = 0; i < sizeof(EFI_GUID); i++) {
+		if (Ab[i] != Bb[i]) return EFI_FALSE;
+	}
+	return EFI_TRUE;
+}
 
-	system_table->ConOut->ClearScreen(system_table->ConOut);
+static VOID *FindAcpiTAble(EFI_SYSTEM_TABLE *gSystemTable) {
+	VOID *Acpi20 = NULL;
+	VOID *Acpi10 = NULL;
+	for (UINTN i = 0; i < gSystemTable->NumberOfTableEntries; i++) {
+		EFI_CONFIGURATION_TABLE *Entry = &gSystemTable->ConfigurationTable[i];
+		if (GuidEqual(&Entry->VendorGuid, &gEfiAcpi20TableGuid)) {
+			Acpi20 = Entry->VendorTable;
+		} else if (GuidEqual(&Entry->VendorGuid, &gEfiAcpiTableGuid)) {
+			Acpi10 = &Entry->VendorGuid;
+		}
+	}
+	return Acpi20 != NULL ? Acpi20 : Acpi10;
+}
 
-	EFI_LOADED_IMAGE_PROTOCOL *loaded_image= 0;
-	status = system_table->BootServices->HandleProtocol(
-			image_handle,
-			&lip_guid,
+static UINT64 ComputeUsableMemorySize(EFI_MEMORY_DESCRIPTOR *MemoryMap, UINTN MemoryMapSize, UINTN DescriptorSize) {
+	UINT64 Total = 0;
+	UINT8 *Cursor = (UINT8 *)MemoryMap;
+	UINT8 *End = Cursor + MemoryMapSize;
+	while (Cursor < End) {
+		EFI_MEMORY_DESCRIPTOR *Desc = (EFI_MEMORY_DESCRIPTOR *)Cursor;
+		switch (Desc->Type) {
+			case EfiLoaderCode:
+			case EfiLoaderData:
+			case EfiBootServicesCode:
+			case EfiBootServicesData:
+			case EfiConventionalMemory:
+			case EfiACPIReclaimMemory:
+			case EfiACPIMemoryNVS:
+			case EfiPalCode:
+				Total += Desc->NumberOfPages * EFI_PAGE_SIZE;
+				break;
+			default:
+				break;
+		}
+		Cursor += DescriptorSize;
+	}
+	return Total;
+}
+
+EFI_HANDLE gImageHandle;
+EFI_SYSTEM_TABLE *gSystemTable;
+
+EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {	
+	gImageHandle = ImageHandle;
+	gSystemTable = SystemTable;
+	EFI_STATUS Status;
+
+	gSystemTable->ConOut->ClearScreen(gSystemTable->ConOut);
+
+	EFI_LOADED_IMAGE_PROTOCOL *loaded_image = NULL;
+	Status = gSystemTable->BootServices->HandleProtocol(
+			gImageHandle,
+			&gEfiLoadedImageGuid,
 			(VOID **)&loaded_image);
-	if (!EFI_ERROR(status)) {
+	if (!EFI_ERROR(Status)) {
 		PrintHex((UINT64)loaded_image->ImageBase);
 	}
 
 	PrintLn(L"KBOOT Initialized Successfully");
 
-//	UINTN cfg_size;
-//	VOID *cfg_data;
-
-//	EFI_FILE_PROTOCOL *file;
-//	status = OpenFile(L"\\KBOOT\\KBOOT.CFG", &file);
-//	if (!EFI_ERROR(status)) {
-//		status = ReadFile(file, &cfg_data, &cfg_size);
-//		file->Close(file);
-//	} else {
-//		PrintLn(L"FAILED TO READ \\KBOOT\\KBOOT.CFG");
-//		return status;
-//	}
-
-	UINTN kernel_size;
-	VOID *kernel_data;
-
-	EFI_FILE_PROTOCOL *file;
-	status = OpenFile(L"\\KBOOT\\KERNEL.BIN", &file);
-	if (EFI_ERROR(status)) {
+	UINTN KernelSize;
+	VOID *KernelData;
+	EFI_FILE_PROTOCOL *File;
+	Status = OpenFile(L"\\KBOOT\\KERNEL.BIN", &File);
+	if (EFI_ERROR(Status)) {
 		PrintLn(L"FAILED TO OPEN \\KBOOT\\KERNEL.BIN");
-		return status;
+		return Status;
 	}
-	status = ReadFile(file, &kernel_data, &kernel_size);
-	if (EFI_ERROR(status)) {
+	Status = ReadFile(File, &KernelData, &KernelSize);
+	if (EFI_ERROR(Status)) {
 		PrintLn(L"FAILED TO READ \\KBOOT\\KERNEL.BIN");
-		file->Close(file);
-		return status;
+		File->Close(File);
+		return Status;
 	}
+	File->Close(File);
 
-	file->Close(file);
-
-	#define TARGET_KERNEL_ADDR 0x100000
-	EFI_PHYSICAL_ADDRESS kernel_addr = TARGET_KERNEL_ADDR;
-	UINTN pages = (kernel_size + 0x1000 - 1) / 0x1000;
-
-	status = system_table->BootServices->AllocatePages(AllocateAddress, EfiLoaderData, pages, &kernel_addr);
-	if (EFI_ERROR(status)) {
+	EFI_PHYSICAL_ADDRESS KernelAddr = TARGET_KERNEL_ADDR;
+	UINTN Pages = (KernelSize + EFI_PAGE_SIZE - 1) / EFI_PAGE_SIZE; // Calculate how many pages the kernel uses
+	Status = gSystemTable->BootServices->AllocatePages(AllocateAddress, EfiLoaderData, Pages, &KernelAddr);
+	if (EFI_ERROR(Status)) {
 		PrintLn(L"AllocatePages Kernel Error");
-		return status;
+		Free(KernelData);
+		return Status;
 	}
-	if (kernel_addr != TARGET_KERNEL_ADDR) {
+	if (KernelAddr != TARGET_KERNEL_ADDR) {
 		PrintLn(L"Kernel Address Error");
-		return EFI_BUFFER_TOO_SMALL | 0x8000000000000000;
+		Free(KernelData);
+		return EFIERR(EFI_BUFFER_TOO_SMALL);
 	}
 
-	memcpy((VOID *)kernel_addr, kernel_data, kernel_size);
+	memcpy((VOID *)(UINTN)KernelAddr, KernelData, KernelSize);
+	Free(KernelData);
 
-	UINTN memory_map_size = 0;
-	EFI_MEMORY_DESCRIPTOR *memory_map = 0;
-	UINTN map_key;
-	UINTN descriptor_size;
-	UINT32 descriptor_version;
+	// Prepare BootInfo
+	KBOOT_BOOT_INFO *BootInfo = NULL;
+	Status = gSystemTable->BootServices->AllocatePool(EfiLoaderData, sizeof(KBOOT_BOOT_INFO), (VOID **)&BootInfo);
+	if (EFI_ERROR(Status)) {
+		PrintLn(L"AllocatePool BootInfo Error");
+		return Status;
+	}
+	BootInfo->AcpiTableAddress = FindAcpiTAble(gSystemTable);
 
-	system_table->BootServices->GetMemoryMap(
-			&memory_map_size,
-			memory_map,
-			&map_key,
-			&descriptor_size,
-			&descriptor_version);
-
-	memory_map_size += descriptor_size * 2;
-
-	system_table->BootServices->AllocatePool(
-			EfiLoaderData,
-			memory_map_size,
-			(void **)&memory_map);
-
-	status = system_table->BootServices->GetMemoryMap(
-			&memory_map_size,
-			memory_map,
-			&map_key,
-			&descriptor_size,
-			&descriptor_version);
+	// ------- FINAL MemoryMap! -------
+	// DO NOT ALLOCATE PAST THIS POINT!
 	
-	system_table->BootServices->ExitBootServices(image_handle, map_key);
+	UINTN MemoryMapSize = 0;
+	EFI_MEMORY_DESCRIPTOR *MemoryMap = NULL;
+	UINTN MapKey = 0;
+	UINTN DescriptorSize = 0;
+	UINT32 DescriptorVersion = 0;
+	UINTN BufferSize = 0;
 
-	__asm__ volatile (
-			"movabs $0x100000, %rax\n\t"
-			"jmp *%rax"
-		);
-	
+	gSystemTable->BootServices->GetMemoryMap(
+			&MemoryMapSize, MemoryMap, &MapKey, &DescriptorSize, &DescriptorVersion);
+
+	for (;;) {
+		BufferSize = MemoryMapSize + DescriptorSize * 4;
+		if (MemoryMap != NULL) {
+			gSystemTable->BootServices->FreePool(MemoryMap);
+		}
+		Status = gSystemTable->BootServices->AllocatePool(EfiLoaderData, BufferSize, (VOID **)&MemoryMap);
+		if (EFI_ERROR(Status)) {
+			PrintLn(L"AllocatePool MemoryMap Error");
+			return Status;
+		}
+
+		MemoryMapSize = BufferSize;
+		Status = gSystemTable->BootServices->GetMemoryMap(
+				&MemoryMapSize, MemoryMap, &MapKey, &DescriptorSize, &DescriptorVersion);
+		if (!EFI_ERROR(Status)) break;
+		if (Status != EFIERR(EFI_BUFFER_TOO_SMALL)) {
+			PrintLn(L"GetMemoryMap Error");
+			return Status;
+		}
+	}
+
+	BootInfo->MemorySize = ComputeUsableMemorySize(MemoryMap, MemoryMapSize, DescriptorSize);
+
+	Status = SystemTable->BootServices->ExitBootServices(gImageHandle, MapKey);
+	if (EFI_ERROR(Status)) {
+		PrintLn(L"ExitBootServices Error");
+		return Status;
+	}
+
+	__asm__ volatile ("cli");
+
+	KERNEL_ENTRY KernelEntry = (KERNEL_ENTRY)(UINTN)TARGET_KERNEL_ADDR;
+	KernelEntry(BootInfo);
+
 	__builtin_unreachable();
 }
 

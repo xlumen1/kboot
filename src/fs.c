@@ -1,94 +1,93 @@
 #include "fs.h"
 
-EFI_GUID loaded_image_guid = EFI_LOADED_IMAGE_PROTOCOL_GUID;
-EFI_GUID sfs_guid = EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID;
-EFI_GUID file_info_guid = EFI_FILE_INFO_ID;
+#include "protocol/efi-lip.h"
+#include "protocol/efi-sfsp.h"
 
-EFI_STATUS OpenFile(CHAR16 *path, EFI_FILE_PROTOCOL **out) {
-	EFI_STATUS status;
-	EFI_LOADED_IMAGE_PROTOCOL *loaded_image;
-	EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *sfs;
-	EFI_FILE_PROTOCOL *root;
-	EFI_FILE_PROTOCOL *file;
+EFI_STATUS OpenFile(CHAR16 *Path, EFI_FILE_PROTOCOL **Out) {
+	EFI_STATUS Status;
+	EFI_LOADED_IMAGE_PROTOCOL *LoadedImage;
+	EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *Sfs;
+	EFI_FILE_PROTOCOL *Root;
+	EFI_FILE_PROTOCOL *File;
 
-	status = system_table->BootServices->HandleProtocol(
-			image_handle, &loaded_image_guid, (VOID **)&loaded_image);
-	if (EFI_ERROR(status)) {
+	Status = gSystemTable->BootServices->HandleProtocol(
+			gImageHandle, &gEfiLoadedImageGuid, (VOID **)&LoadedImage);
+	if (EFI_ERROR(Status)) {
 		PrintLn(L"LIP HandleProtocol Error");
-		return status;
+		return Status;
 	}
 
-	status = system_table->BootServices->HandleProtocol(
-			loaded_image->DeviceHandle, &sfs_guid, (VOID **)&sfs);
-	if (EFI_ERROR(status)) {
+	Status = gSystemTable->BootServices->HandleProtocol(
+			LoadedImage->DeviceHandle, &gEfiSimpleFileSystemGuid, (VOID **)&Sfs);
+	if (EFI_ERROR(Status)) {
 		PrintLn(L"SFS HandleProtocol Error");
-		return status;
+		return Status;
 	}
 
-	status = sfs->OpenVolume(sfs, &root);
-	if (EFI_ERROR(status)) {
+	Status = Sfs->OpenVolume(Sfs, &Root);
+	if (EFI_ERROR(Status)) {
 		PrintLn(L"OpenVolume Error");
-		return status;
+		return Status;
 	}
 
-	status = root->Open(root, &file, path, EFI_FILE_MODE_READ, 0);
-	if (EFI_ERROR(status)) {
+	Status = Root->Open(Root, &File, Path, EFI_FILE_MODE_READ, 0);
+	if (EFI_ERROR(Status)) {
 		PrintLn(L"Open Error");
-		root->Close(root);
-		return status;
+		Root->Close(Root);
+		return Status;
 	}
 
-	root->Close(root);
-	*out = file;
+	Root->Close(Root);
+	*Out = File;
 	return EFI_SUCCESS;
 }
 
-EFI_STATUS ReadFile(EFI_FILE_PROTOCOL *file, VOID **buffer_out, UINTN *size_out) {
-	EFI_STATUS status;
-	EFI_FILE_INFO *info = ((VOID *)0);
-	UINTN info_size = 0;
+EFI_STATUS ReadFile(EFI_FILE_PROTOCOL *File, VOID **BufferOut, UINTN *SizeOut) {
+	EFI_STATUS Status;
+	EFI_FILE_INFO *Info = NULL;
+	UINTN InfoSize = 0;
 
-	status = file->GetInfo(file, &file_info_guid, &info_size, ((VOID *)0));
-	if (status != (EFI_BUFFER_TOO_SMALL | 0x8000000000000000)) {
+	Status = File->GetInfo(File, &gEfiFileInfoGuid, &InfoSize, NULL);
+	if (Status != (EFI_BUFFER_TOO_SMALL | 0x8000000000000000)) {
 		PrintLn(L"GetInfo Size Query Error");
-		PrintHex(status);
+		PrintHex(Status);
 		PrintHex(EFI_BUFFER_TOO_SMALL | 0x8000000000000000);
-		return status;
+		return Status;
 	}
 
-	status = system_table->BootServices->AllocatePool(EfiLoaderData, info_size, (VOID **)&info);
-	if (EFI_ERROR(status)) {
+	Status = gSystemTable->BootServices->AllocatePool(EfiLoaderData, InfoSize, (VOID **)&Info);
+	if (EFI_ERROR(Status)) {
 		PrintLn(L"AllocatePool Info Error");
-		return status;
+		return Status;
 	}
 
-	status = file->GetInfo(file, &file_info_guid, &info_size, info);
-	if (EFI_ERROR(status)) {
+	Status = File->GetInfo(File, &gEfiFileInfoGuid, &InfoSize, Info);
+	if (EFI_ERROR(Status)) {
 		PrintLn(L"GetInfo Error");
-		system_table->BootServices->FreePool(info);
-		return status;
+		gSystemTable->BootServices->FreePool(Info);
+		return Status;
 	}
 
-	UINTN file_size = info->FileSize;
-	system_table->BootServices->FreePool(info);
+	UINTN FileSize = Info->FileSize;
+	gSystemTable->BootServices->FreePool(Info);
 
 	VOID *buffer;
-	status = system_table->BootServices->AllocatePool(EfiLoaderData, file_size, &buffer);
-	if (EFI_ERROR(status)) {
+	Status = gSystemTable->BootServices->AllocatePool(EfiLoaderData, FileSize, &buffer);
+	if (EFI_ERROR(Status)) {
 		PrintLn(L"AllocatePool Buffer Error");
-		return status;
+		return Status;
 	}
 
-	UINTN read_size = file_size;
-	status = file->Read(file, &read_size, buffer);
-	if (EFI_ERROR(status)) {
+	UINTN ReadSize = FileSize;
+	Status = File->Read(File, &ReadSize, buffer);
+	if (EFI_ERROR(Status)) {
 		PrintLn(L"Read Failed");
-		system_table->BootServices->FreePool(buffer);
-		return status;
+		gSystemTable->BootServices->FreePool(buffer);
+		return Status;
 	}
 
-	*buffer_out = buffer;
-	*size_out = read_size;
+	*BufferOut = buffer;
+	*SizeOut = ReadSize;
 	return EFI_SUCCESS;
 }
 
