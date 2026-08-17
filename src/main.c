@@ -4,8 +4,10 @@
 #include "util.h"
 #include "fs.h"
 #include "protocol/efi-gop.h"
+#include "protocol/efi-lip.h"
 
 EFI_GUID gop_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
+EFI_GUID lip_guid = EFI_LOADED_IMAGE_PROTOCOL_GUID;
 
 EFI_STATUS efi_main(EFI_HANDLE ih, EFI_SYSTEM_TABLE *st) {
 	image_handle = ih;
@@ -14,6 +16,15 @@ EFI_STATUS efi_main(EFI_HANDLE ih, EFI_SYSTEM_TABLE *st) {
 	EFI_STATUS status;
 
 	system_table->ConOut->ClearScreen(system_table->ConOut);
+
+	EFI_LOADED_IMAGE_PROTOCOL *loaded_image= 0;
+	status = system_table->BootServices->HandleProtocol(
+			image_handle,
+			&lip_guid,
+			(VOID **)&loaded_image);
+	if (!EFI_ERROR(status)) {
+		PrintHex((UINT64)loaded_image->ImageBase);
+	}
 
 	PrintLn(L"KBOOT Initialized Successfully");
 
