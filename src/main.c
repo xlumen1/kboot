@@ -67,6 +67,9 @@ EFI_STATUS efi_main(EFI_HANDLE ih, EFI_SYSTEM_TABLE *st) {
 	EFI_GRAPHICS_OUTPUT_PROTOCOL *gop;
 	system_table->BootServices->LocateProtocol(&gop_guid, (VOID *)0, (VOID **)&gop);
 
+	typedef void (*kernel_entry_t)();
+	kernel_entry_t entry = (kernel_entry_t)kernel_addr;
+	entry();
 
 	for (;;) ;
 
