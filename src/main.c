@@ -8,6 +8,8 @@
 
 #define TARGET_KERNEL_ADDR 0x100000
 
+#define EFI_ERROR(Status) (((INTN)(Status)) < 0)
+
 typedef VOID (__attribute__((sysv_abi)) *KERNEL_ENTRY)(KBOOT_BOOT_INFO *BootInfo);
 
 static BOOLEAN GuidEqual(EFI_GUID *A, EFI_GUID *B) {
@@ -19,7 +21,7 @@ static BOOLEAN GuidEqual(EFI_GUID *A, EFI_GUID *B) {
 	return EFI_TRUE;
 }
 
-static VOID *FindAcpiTAble(EFI_SYSTEM_TABLE *gSystemTable) {
+static VOID *FindAcpiTable(EFI_SYSTEM_TABLE *gSystemTable) {
 	VOID *Acpi20 = NULL;
 	VOID *Acpi10 = NULL;
 	for (UINTN i = 0; i < gSystemTable->NumberOfTableEntries; i++) {
@@ -27,7 +29,7 @@ static VOID *FindAcpiTAble(EFI_SYSTEM_TABLE *gSystemTable) {
 		if (GuidEqual(&Entry->VendorGuid, &gEfiAcpi20TableGuid)) {
 			Acpi20 = Entry->VendorTable;
 		} else if (GuidEqual(&Entry->VendorGuid, &gEfiAcpiTableGuid)) {
-			Acpi10 = &Entry->VendorGuid;
+			Acpi10 = Entry->VendorTable;
 		}
 	}
 	return Acpi20 != NULL ? Acpi20 : Acpi10;
@@ -81,19 +83,34 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
 
 	UINTN KernelSize;
 	VOID *KernelData;
-	EFI_FILE_PROTOCOL *File;
-	Status = OpenFile(L"\\KBOOT\\KERNEL.BIN", &File);
+	EFI_FILE_PROTOCOL *Volume = NULL;
+	EFI_FILE_PROTOCOL *File = NULL;
+	EFI_FILE_INFO *Info = NULL;
+
+	Status = GetVolume(&Volume);
+	if (EFI_ERROR(Status)) {
+		PrintLn(L"FAILED TO OPEN ROOT VOLUME");
+		return Status;
+	}
+	PrintLn(L"Volume Open");
+	PrintHex((UINT64)Volume);
+	Status = OpenFile(Volume, L"\\KBOOT\\KERNEL.BIN", &File);
 	if (EFI_ERROR(Status)) {
 		PrintLn(L"FAILED TO OPEN \\KBOOT\\KERNEL.BIN");
 		return Status;
 	}
-	Status = ReadFile(File, &KernelData, &KernelSize);
-	if (EFI_ERROR(Status)) {
+	PrintLn(L"Kernel Open");
+	KernelData = Malloc(1024);
+	Status = ReadFile(File, &KernelData, Info, 1024);
+	KernelSize = Info->FileSize;
+	if (EFI_ERROR(Status) || KernelSize == 0) {
 		PrintLn(L"FAILED TO READ \\KBOOT\\KERNEL.BIN");
 		File->Close(File);
 		return Status;
 	}
-	File->Close(File);
+	CloseFile(File);
+	PrintLn(L"Kernel Size:");
+	PrintHex(KernelSize);
 
 	EFI_PHYSICAL_ADDRESS KernelAddr = TARGET_KERNEL_ADDR;
 	UINTN Pages = (KernelSize + EFI_PAGE_SIZE - 1) / EFI_PAGE_SIZE; // Calculate how many pages the kernel uses
@@ -103,6 +120,8 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
 		Free(KernelData);
 		return Status;
 	}
+	PrintLn(L"AllocatePages Status:");
+	PrintHex(Status);
 	if (KernelAddr != TARGET_KERNEL_ADDR) {
 		PrintLn(L"Kernel Address Error");
 		Free(KernelData);
@@ -112,6 +131,8 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
 	memcpy((VOID *)(UINTN)KernelAddr, KernelData, KernelSize);
 	Free(KernelData);
 
+	PrintBytes((VOID *)KernelAddr, Info->FileSize);
+
 	// Prepare BootInfo
 	KBOOT_BOOT_INFO *BootInfo = NULL;
 	Status = gSystemTable->BootServices->AllocatePool(EfiLoaderData, sizeof(KBOOT_BOOT_INFO), (VOID **)&BootInfo);
@@ -119,7 +140,7 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
 		PrintLn(L"AllocatePool BootInfo Error");
 		return Status;
 	}
-	BootInfo->AcpiTableAddress = FindAcpiTAble(gSystemTable);
+	BootInfo->AcpiTableAddress = FindAcpiTable(gSystemTable);
 
 	// ------- FINAL MemoryMap! -------
 	// DO NOT ALLOCATE PAST THIS POINT!

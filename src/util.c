@@ -45,3 +45,48 @@ VOID PrintHex(UINT64 value) {
 	PrintLn(output);
 }
 
+
+VOID PrintBytes(VOID *Bytes, UINTN Num) {
+	UINTN Chars = 2 * Num;
+	UINTN Size = sizeof(CHAR16) * (Chars + 1);
+
+	CHAR16 Map[17] = L"0123456789ABCDEF";
+	CHAR16 *Output = Malloc(Size);
+
+	for (UINTN i = 0; i < Num; i++) {
+		UINT8 Byte = ((UINT8 *)Bytes)[i];
+		UINT8 Low = Byte & 0x0F;
+		UINT8 High = Byte >> 4;
+
+		CHAR16 LowChar = Map[Low];
+		CHAR16 HighChar = Map[High];
+		
+		Output[i * 2] = HighChar;
+		Output[i * 2 + 1] = LowChar;
+	}
+	Output[Chars] = L'\0';
+
+	PrintLn(Output);
+	Free(Output);
+}
+
+EFI_FILE_INFO *GetFileInfo(EFI_FILE_PROTOCOL *File) {
+    EFI_STATUS Status;
+    EFI_FILE_INFO *Buffer = NULL;
+	// A decent guess
+    UINTN Size = sizeof(EFI_FILE_INFO) + 200;
+
+	Malloc(Size);
+	Status = File->GetInfo(File,
+			&gEfiFileInfoGuid,
+			&Size,
+			Buffer);
+	if (!EFI_ERROR(Status)) {
+		return Buffer;
+	}
+
+	Free(Buffer);
+
+    return NULL;
+}
+

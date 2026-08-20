@@ -2,6 +2,8 @@
 
 #include "efi.h"
 
+#include "protocol/efi-fp.h"
+
 #define EFIERR(a) (0x8000000000000000ULL | (a))
 
 #ifndef EFI_PAGE_SIZE
@@ -32,5 +34,8 @@ VOID *Malloc(UINTN n);
 VOID Free(VOID *mem);
 
 VOID PrintLn(CHAR16 *string);
-VOID PrintHex(UINT64 value);
+VOID PrintHex(UINT64 value); // Print A Little Endian Word
+VOID PrintBytes(VOID *Bytes, UINTN Num);
+
+EFI_FILE_INFO *GetFileInfo(EFI_FILE_PROTOCOL *File);
 
