@@ -99,10 +99,11 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
 		PrintLn(L"FAILED TO OPEN \\KBOOT\\KERNEL.BIN");
 		return Status;
 	}
+
 	PrintLn(L"Kernel Open");
-	KernelData = Malloc(1024);
-	Status = ReadFile(File, &KernelData, Info, 1024);
 	KernelSize = Info->FileSize;
+	KernelData = Malloc(KernelSize);
+	Status = ReadFile(File, &KernelData, Info, 1024);
 	if (EFI_ERROR(Status) || KernelSize == 0) {
 		PrintLn(L"FAILED TO READ \\KBOOT\\KERNEL.BIN");
 		File->Close(File);
