@@ -15,6 +15,18 @@
 typedef struct {
 	VOID   *AcpiTableAddress;
 	UINT64  MemorySize;
+	struct {
+		VOID *Address;
+		UINT64 Size;
+
+		UINT32 Width;
+		UINT32 Height;
+
+		UINT32 Pitch;
+		UINT16 BitsPerPixel;
+
+		UINT32 Format;
+	} Framebuffer;
 } KBOOT_BOOT_INFO;
 
 extern EFI_HANDLE gImageHandle;
@@ -23,7 +35,7 @@ extern EFI_SYSTEM_TABLE *gSystemTable;
 extern EFI_GUID gEfiLoadedImageGuid;
 extern EFI_GUID gEfiSimpleFileSystemGuid;
 extern EFI_GUID gEfiFileInfoGuid;
-extern EFI_GUID gGraphicsOutputProtocolGuid;
+extern EFI_GUID gEfiGraphicsOutputProtocolGuid;
 extern EFI_GUID gEfiAcpi20TableGuid;
 extern EFI_GUID gEfiAcpiTableGuid;
 

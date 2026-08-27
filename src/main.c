@@ -133,6 +133,8 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
 
 	PrintBytes((VOID *)KernelAddr, Info->FileSize);
 
+	KERNEL_ENTRY KernelEntry = (KERNEL_ENTRY)(UINTN)TARGET_KERNEL_ADDR;
+
 	// Prepare BootInfo
 	KBOOT_BOOT_INFO *BootInfo = NULL;
 	Status = gSystemTable->BootServices->AllocatePool(EfiLoaderData, sizeof(KBOOT_BOOT_INFO), (VOID **)&BootInfo);
@@ -141,6 +143,27 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
 		return Status;
 	}
 	BootInfo->AcpiTableAddress = FindAcpiTable(gSystemTable);
+
+	EFI_GRAPHICS_OUTPUT_PROTOCOL *Gop;
+	Status = gSystemTable->BootServices->LocateProtocol(&gEfiGraphicsOutputProtocolGuid, NULL, (VOID **)&Gop);
+	if (EFI_ERROR(Status)) {
+		PrintLn(L"Failed To Locate GOP");
+		return Status;
+	}
+
+	BootInfo->Framebuffer.Address = (VOID *)Gop->Mode->FrameBufferBase;
+	BootInfo->Framebuffer.Size = Gop->Mode->FrameBufferSize;
+	BootInfo->Framebuffer.Width = Gop->Mode->Info->HorizontalResolution;
+	BootInfo->Framebuffer.Height = Gop->Mode->Info->VerticalResolution;
+	BootInfo->Framebuffer.BitsPerPixel = 32; //TODO: Infer BPP from info;
+	BootInfo->Framebuffer.Pitch = Gop->Mode->Info->PixelsPerScanLine * BootInfo->Framebuffer.BitsPerPixel / 8;
+	BootInfo->Framebuffer.Format = Gop->Mode->Info->PixelFormat;
+
+	PrintLn(L"Debug: Jumping To KernelEntry");
+
+	KernelEntry(BootInfo);
+
+	PrintLn(L"This Should Not Print");
 
 	// ------- FINAL MemoryMap! -------
 	// DO NOT ALLOCATE PAST THIS POINT!
@@ -186,7 +209,7 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
 
 	__asm__ volatile ("cli");
 
-	KERNEL_ENTRY KernelEntry = (KERNEL_ENTRY)(UINTN)TARGET_KERNEL_ADDR;
+//	KERNEL_ENTRY KernelEntry = (KERNEL_ENTRY)(UINTN)TARGET_KERNEL_ADDR;
 	KernelEntry(BootInfo);
 
 	__builtin_unreachable();

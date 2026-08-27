@@ -15,7 +15,19 @@ CFG := $(OUT)/KBOOT/KBOOT.CFG
 ALL_C := $(shell find $(SRC) -type f -name "*.c")
 ALL_OBJ := $(patsubst $(SRC)/%.c,$(BUILD)/%.o,$(ALL_C))
 
-.PHONY: all clean run
+.PHONY: all clean run debug
+
+debug: $(BIN) $(VARS) $(CFG)
+	qemu-system-x86_64 \
+		-enable-kvm \
+		-cpu host \
+		-m 4G \
+		-s -S \
+		-drive if=pflash,format=raw,readonly=on,file=/usr/share/ovmf/x64/OVMF_CODE.4m.fd \
+		-drive if=pflash,format=raw,file=./$(VARS) \
+		-drive file=fat:rw:$(OUT),format=raw,id=bootdrive,if=none \
+		-device virtio-blk-pci,drive=bootdrive,bootindex=1 &
+		gdb --silent -ex "target remote localhost:1234"
 
 run: $(BIN) $(VARS) $(CFG)
 	qemu-system-x86_64 \
