@@ -13,20 +13,25 @@
 #define NULL ((VOID *)0)
 
 typedef struct {
-	VOID   *AcpiTableAddress;
-	UINT64  MemorySize;
+	VOID       *AcpiTableAddress;
 	struct {
-		VOID *Address;
-		UINT64 Size;
+		VOID   *Address;
+		UINT64  Size;
 
-		UINT32 Width;
-		UINT32 Height;
+		UINT32  Width;
+		UINT32  Height;
 
-		UINT32 Pitch;
-		UINT16 BitsPerPixel;
+		UINT32  Pitch;
+		UINT16  BitsPerPixel;
 
-		UINT32 Format;
+		UINT32  Format;
 	} Framebuffer;
+	struct {
+		VOID   *MemoryMap;
+		UINT64  MemoryMapSize;
+		UINT64  MemoryMapDescriptorSize;
+		UINT32  MemoryMapDescriptorVersion;
+	} Memory;
 } KBOOT_BOOT_INFO;
 
 extern EFI_HANDLE gImageHandle;

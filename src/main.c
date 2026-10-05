@@ -213,6 +213,12 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
 	}
 	if (EFI_ERROR(Status)) { PrintLn(L"ExitBootServices failed"); return Status; }
 
+	// Pass the memory map to the kernel
+	BootInfo->Memory.MemoryMap                  = MemoryMap;
+	BootInfo->Memory.MemoryMapSize              = MemoryMapSize;
+	BootInfo->Memory.MemoryMapDescriptorSize    = DescriptorSize;
+	BootInfo->Memory.MemoryMapDescriptorVersion = DescriptorVersion;
+
 	__asm__ volatile ("cli");
 
 	KernelEntry(BootInfo);
