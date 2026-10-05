@@ -100,6 +100,7 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
 		return Status;
 	}
 
+	Info = GetFileInfo(File);
 	PrintLn(L"Kernel Open");
 	KernelSize = Info->FileSize;
 	KernelData = Malloc(KernelSize);
@@ -117,8 +118,13 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
 	UINTN Pages = (KernelSize + EFI_PAGE_SIZE - 1) / EFI_PAGE_SIZE; // Calculate how many pages the kernel uses
 	Status = gSystemTable->BootServices->AllocatePages(AllocateAddress, EfiLoaderData, Pages, &KernelAddr);
 	if (EFI_ERROR(Status)) {
-		PrintLn(L"AllocatePages Kernel Error");
-		Free(KernelData);
+	    PrintLn(L"AllocatePages Kernel Error:");
+		PrintHex(Status);
+	    PrintLn(L"Kernel Pages:");
+		PrintHex(Pages);
+	    PrintLn(L"Kernel Address:");
+		PrintHex(KernelAddr);
+	    Free(KernelData);
 		return Status;
 	}
 	PrintLn(L"AllocatePages Status:");
@@ -160,12 +166,6 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
 	BootInfo->Framebuffer.Pitch = Gop->Mode->Info->PixelsPerScanLine * BootInfo->Framebuffer.BitsPerPixel / 8;
 	BootInfo->Framebuffer.Format = Gop->Mode->Info->PixelFormat;
 
-	PrintLn(L"Debug: Jumping To KernelEntry");
-
-	KernelEntry(BootInfo);
-
-	PrintLn(L"This Should Not Print");
-
 	// ------- FINAL MemoryMap! -------
 	// DO NOT ALLOCATE PAST THIS POINT!
 	
@@ -176,41 +176,45 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
 	UINT32 DescriptorVersion = 0;
 	UINTN BufferSize = 0;
 
-	gSystemTable->BootServices->GetMemoryMap(
-			&MemoryMapSize, MemoryMap, &MapKey, &DescriptorSize, &DescriptorVersion);
+	Status = gSystemTable->BootServices->GetMemoryMap(
+			&MemoryMapSize,
+			NULL,
+			&MapKey,
+			&DescriptorSize,
+			&DescriptorVersion
+	);
 
-	for (;;) {
-		BufferSize = MemoryMapSize + DescriptorSize * 4;
-		if (MemoryMap != NULL) {
-			gSystemTable->BootServices->FreePool(MemoryMap);
-		}
-		Status = gSystemTable->BootServices->AllocatePool(EfiLoaderData, BufferSize, (VOID **)&MemoryMap);
-		if (EFI_ERROR(Status)) {
-			PrintLn(L"AllocatePool MemoryMap Error");
-			return Status;
-		}
-
-		MemoryMapSize = BufferSize;
-		Status = gSystemTable->BootServices->GetMemoryMap(
-				&MemoryMapSize, MemoryMap, &MapKey, &DescriptorSize, &DescriptorVersion);
-		if (!EFI_ERROR(Status)) break;
-		if (Status != EFIERR(EFI_BUFFER_TOO_SMALL)) {
-			PrintLn(L"GetMemoryMap Error");
-			return Status;
-		}
-	}
-
-	BootInfo->MemorySize = ComputeUsableMemorySize(MemoryMap, MemoryMapSize, DescriptorSize);
-
-	Status = SystemTable->BootServices->ExitBootServices(gImageHandle, MapKey);
-	if (EFI_ERROR(Status)) {
-		PrintLn(L"ExitBootServices Error");
+	if (Status != EFIERR(EFI_BUFFER_TOO_SMALL)) {
+		PrintLn(L"Initial GetMemoryMap Failed");
 		return Status;
 	}
 
+	BufferSize = MemoryMapSize + DescriptorSize * 16;
+
+	Status = gSystemTable->BootServices->AllocatePool(
+			EfiLoaderData,
+			BufferSize,
+			(VOID **)&MemoryMap
+	);
+
+	if (EFI_ERROR(Status)) {
+		PrintLn(L"Memory Map Allocation Failed");
+		return Status;
+	}
+
+	for (int Try = 0; Try < 3; Try++) {
+		MemoryMapSize = BufferSize;
+	    Status = gSystemTable->BootServices->GetMemoryMap(&MemoryMapSize, MemoryMap, &MapKey,
+			                      &DescriptorSize, &DescriptorVersion);
+		if (EFI_ERROR(Status)) break;
+
+	    Status = gSystemTable->BootServices->ExitBootServices(gImageHandle, MapKey);
+		if (!EFI_ERROR(Status)) break;
+	}
+	if (EFI_ERROR(Status)) { PrintLn(L"ExitBootServices failed"); return Status; }
+
 	__asm__ volatile ("cli");
 
-//	KERNEL_ENTRY KernelEntry = (KERNEL_ENTRY)(UINTN)TARGET_KERNEL_ADDR;
 	KernelEntry(BootInfo);
 
 	__builtin_unreachable();
