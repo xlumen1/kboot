@@ -8,7 +8,7 @@
 
 #define TARGET_KERNEL_ADDR 0x100000
 
-#define EFI_ERROR(Status) (((INTN)(Status)) < 0)
+//#define EFI_ERROR(Status) (((INTN)(Status)) < 0)
 
 typedef VOID (__attribute__((sysv_abi)) *KERNEL_ENTRY)(KBOOT_BOOT_INFO *BootInfo);
 
